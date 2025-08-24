@@ -30,14 +30,6 @@ class TradingBot:
         welcome_text = """
 🚀 **Trading Bot SMC!**
 
-**Các tính năng:**
-• 📊 Phân tích Order Blocks
-• 🎯 Tìm Fair Value Gaps (FVG)
-• 📈 Break of Structure (BOS)
-• 💧 Liquidity Zones
-• 📉 Indicators (RSI, MA)
-• 🔔 Trading Signals
-
 Chọn một tùy chọn bên dưới để bắt đầu:
         """
         
@@ -145,7 +137,7 @@ Chọn một tùy chọn bên dưới để bắt đầu:
         message += f"{change_emoji} *Thay đổi:* {price_change:+.2f}%\n\n"
         
         # SMC Analysis - Detailed
-        message += "🔍 *SMC ANALYSIS:*\n"
+        message += "🔍 *ANALYSIS:*\n"
         
         # Order Blocks
         ob_count = len(smc['order_blocks'])
@@ -155,33 +147,36 @@ Chọn một tùy chọn bên dưới để bắt đầu:
                 latest_ob = smc['order_blocks'][-1]
                 ob_emoji = "🟢" if latest_ob['type'] == 'bullish_ob' else "🔴"
                 ob_type = latest_ob['type'].replace('_', ' ').upper()
-                message += f"   {ob_emoji} Gần nhất: {ob_type}\n"
+                # message += f"   {ob_emoji} Gần nhất: {ob_type}\n"
                 
                 # Kiểm tra giá trị không phải None
                 if latest_ob.get('low') is not None and latest_ob.get('high') is not None:
-                    message += f"   📍 Level: ${latest_ob['low']:,.0f} - ${latest_ob['high']:,.0f}\n"
+                    # message += f"   📍 Level: ${latest_ob['low']:,.0f} - ${latest_ob['high']:,.0f}\n"
+                    print(f"Order Block: {latest_ob}")  # Debug log
             except (KeyError, TypeError, IndexError):
-                message += "   ⚠️ Dữ liệu OB không đầy đủ\n"
+                print("Dữ liệu OB không đầy đủ")
     
         # Fair Value Gaps
         fvg_count = len(smc['fair_value_gaps'])
-        message += f"🎯 *Fair Value Gaps:* {fvg_count}\n"
+        # message += f"🎯 *Fair Value Gaps:* {fvg_count}\n"
         if fvg_count > 0:
             try:
                 latest_fvg = smc['fair_value_gaps'][-1]
                 fvg_emoji = "🟢" if latest_fvg['type'] == 'bullish_fvg' else "🔴"
                 fvg_type = latest_fvg['type'].replace('_', ' ').upper()
-                message += f"   {fvg_emoji} Gần nhất: {fvg_type}\n"
+                # message += f"   {fvg_emoji} Gần nhất: {fvg_type}\n"
                 
                 # Kiểm tra giá trị không phải None
                 if latest_fvg.get('top') is not None and latest_fvg.get('bottom') is not None:
-                    message += f"   📍 Gap: ${latest_fvg['bottom']:,.0f} - ${latest_fvg['top']:,.0f}\n"
+                    print(f"Fair Value Gap: {latest_fvg}")  # Debug log
+                    # message += f"   📍 Gap: ${latest_fvg['bottom']:,.0f} - ${latest_fvg['top']:,.0f}\n"
             except (KeyError, TypeError, IndexError):
-                message += "   ⚠️ Dữ liệu FVG không đầy đủ\n"
+                print("Dữ liệu FVG không đầy đủ")
+                # message += "   ⚠️ Dữ liệu FVG không đầy đủ\n"
     
         # Break of Structure
         bos_count = len(smc['break_of_structure'])
-        message += f"🔄 *Break of Structure:* {bos_count}\n"
+        message += f"🔄 *Structure:* {bos_count}\n"
         if bos_count > 0:
             try:
                 latest_bos = smc['break_of_structure'][-1]
@@ -190,7 +185,8 @@ Chọn một tùy chọn bên dưới để bắt đầu:
                 message += f"   {bos_emoji} Gần nhất: {bos_type}\n"
                 message += f"   📍 Price: ${latest_bos['price']:,.2f}\n"
             except (KeyError, TypeError, IndexError):
-                message += "   ⚠️ Dữ liệu BOS không đầy đủ\n"
+                print("Dữ liệu BOS không đầy đủ")
+                # message += "   ⚠️ Dữ liệu BOS không đầy đủ\n"
     
         # Liquidity Zones
         lz_count = len(smc['liquidity_zones'])
@@ -203,8 +199,8 @@ Chọn một tùy chọn bên dưới để bắt đầu:
                 message += f"   {lz_emoji} Gần nhất: {lz_type}\n"
                 message += f"   📍 Level: ${latest_lz['price']:,.2f}\n"
             except (KeyError, TypeError, IndexError):
-                message += "   ⚠️ Dữ liệu LZ không đầy đủ\n"
-    
+                print("Dữ liệu LZ không đầy đủ")
+
         message += "\n"
         
         # Trading Signals
@@ -268,23 +264,23 @@ Chọn một tùy chọn bên dưới để bắt đầu:
             
             # RSI analysis
             if rsi > 70:
-                suggestions.append("⚠️ RSI quá mua - Cân nhắc bán")
+                suggestions.append("⚠️ Cân nhắc bán")
             elif rsi < 30:
-                suggestions.append("🚀 RSI quá bán - Cân nhắc mua")
-            
+                suggestions.append("🚀 Cân nhắc mua")
+
             # SMC analysis
             if smc.get('break_of_structure') and len(smc['break_of_structure']) > 0:
                 latest_bos = smc['break_of_structure'][-1]
                 if latest_bos.get('type') == 'bullish_bos':
-                    suggestions.append("📈 BOS tăng - Xu hướng tăng")
+                    suggestions.append("📈 Xu hướng tăng")
                 elif latest_bos.get('type') == 'bearish_bos':
-                    suggestions.append("📉 BOS giảm - Xu hướng giảm")
+                    suggestions.append("📉 Xu hướng giảm")
             
             # FVG analysis
             if smc.get('fair_value_gaps'):
                 fvg_count = len([fvg for fvg in smc['fair_value_gaps'] if not fvg.get('filled', True)])
                 if fvg_count > 2:
-                    suggestions.append(f"🎯 FVG chưa fill - Chờ retest")
+                    suggestions.append(f"🎯 Chờ retest")
             
             # Trading signals
             if trading_signals:
