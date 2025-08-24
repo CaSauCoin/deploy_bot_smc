@@ -131,7 +131,7 @@ class AdvancedSMC:
         self.exchange_name = exchange_name
         self.informative_timeframes = ['15m', '1h', '4h', '1d']
         
-    def get_market_data(self, symbol, timeframe='4h', limit=500):
+    def get_market_data(self, symbol, timeframe='4h', limit=200):
         """Lấy dữ liệu thị trường từ craw_data"""
         try:
             df = fetch_ohlcv(self.exchange_name, symbol, timeframe, limit)

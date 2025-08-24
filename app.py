@@ -101,13 +101,13 @@ def get_smc_analysis():
         analysis = smc_analyzer.get_trading_signals(symbol, timeframe)
         
         if analysis is None:
-            return jsonify({'error': 'Không thể lấy dữ liệu'}), 500
+            return jsonify({'error': 'Không thể lấy dữ liệu'}), 200
         
         return jsonify(analysis)
         
     except Exception as e:
         print(f"Error in SMC analysis: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e)}), 200
 
 @app.route('/api/chart-data', methods=['GET'])
 def get_chart_data():
@@ -117,10 +117,10 @@ def get_chart_data():
         timeframe = request.args.get('timeframe', '4h')
         
         # Lấy dữ liệu OHLCV
-        df = fetch_ohlcv('binance', symbol, timeframe, 500)
+        df = fetch_ohlcv('binance', symbol, timeframe, 200)
         if df is None:
-            return jsonify({'error': 'Không thể lấy dữ liệu'}), 500
-        
+            return jsonify({'error': 'Không thể lấy dữ liệu'}), 200
+
         # Chuyển đổi dữ liệu cho chart
         candles = []
         for _, row in df.iterrows():
@@ -141,7 +141,7 @@ def get_chart_data():
         
     except Exception as e:
         print(f"Error: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e)}), 200
 
 @app.route('/api/test', methods=['GET'])
 def test_connection():
