@@ -1,0 +1,8 @@
+{
+  "build": {
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "python3 telegram_bot.py"
+  }
+}

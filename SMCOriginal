@@ -1,0 +1,276 @@
+# --- Imports ---
+import numpy as np
+import pandas as pd
+from pandas import DataFrame
+from functools import reduce
+from freqtrade.strategy import IStrategy, merge_informative_pair
+import talib.abstract as ta
+from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ===================================================================================================
+# ==                                                                                               ==
+# ==    ██████╗ ███╗   ███╗ ██████╗     ██╗  ██╗██╗   ██╗██╗   ██╗ █████╗ ██╗                        ==
+# ==   ██╔═══██╗████╗ ████║██╔════╝     ██║  ██║██║   ██║██║   ██║██╔══██╗██║                        ==
+# ==   ██║   ██║██╔████╔██║██║  ███╗    ███████║██║   ██║██║   ██║███████║██║                        ==
+# ==   ██║   ██║██║╚██╔╝██║██║   ██║    ██╔══██║██║   ██║╚██╗ ██╔╝██╔══██║██║                        ==
+# ==   ╚██████╔╝██║ ╚═╝ ██║╚██████╔╝    ██║  ██║╚██████╔╝ ╚████╔╝ ██║  ██║███████╗                   ==
+# ==    ╚═════╝ ╚═╝     ╚═╝ ╚═════╝     ╚═╝  ╚═╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝╚══════╝                   ==
+# ==                                                                                               ==
+# ==    NỘI DUNG PHÂN TÍCH SMC ĐƯỢC TÍCH HỢP TRỰC TIẾP ĐỂ TRÁNH XUNG ĐỘT THƯ VIỆN                  ==
+# ==                                                                                               ==
+# ===================================================================================================
+
+def analyze_smc_features(df: DataFrame, swing_lookback: int = 20) -> DataFrame:
+    """
+    Hàm này phân tích và thêm các cột SMC vào DataFrame.
+    Đây là phiên bản thủ công để thay thế thư viện 'smartmoneyconcepts'.
+    
+    Args:
+        df (DataFrame): Bảng dữ liệu OHLCV.
+        swing_lookback (int): Số nến để xác định đỉnh/đáy.
+
+    Returns:
+        DataFrame: Bảng dữ liệu đã được thêm các cột phân tích SMC.
+    """
+    
+    # --- 1. Xác định Swing Highs & Swing Lows ---
+    df['swing_high'] = df['high'].rolling(window=swing_lookback*2+1, center=True).max() == df['high']
+    df['swing_low'] = df['low'].rolling(window=swing_lookback*2+1, center=True).min() == df['low']
+    
+    # --- 2. Xác định Break of Structure (BOS) và Change of Character (CHoCH) ---
+    last_swing_high = np.nan
+    last_swing_low = np.nan
+    trend = 0  # 1 for bullish, -1 for bearish
+    
+    bos_choch = []
+    
+    for i in range(len(df)):
+        is_swing_high = df['swing_high'].iloc[i]
+        is_swing_low = df['swing_low'].iloc[i]
+        current_high = df['high'].iloc[i]
+        current_low = df['low'].iloc[i]
+        
+        signal = 0 # 1: Bullish BOS, -1: Bearish BOS, 2: Bullish CHoCH, -2: Bearish CHoCH
+        
+        if is_swing_high:
+            last_swing_high = current_high
+        if is_swing_low:
+            last_swing_low = current_low
+
+        if trend == 1 and not np.isnan(last_swing_low) and current_low < last_swing_low:
+            signal = -2 # Bearish CHoCH
+            trend = -1
+            last_swing_high = np.nan # Reset
+        elif trend == -1 and not np.isnan(last_swing_high) and current_high > last_swing_high:
+            signal = 2 # Bullish CHoCH
+            trend = 1
+            last_swing_low = np.nan # Reset
+        elif not np.isnan(last_swing_high) and current_high > last_swing_high:
+            signal = 1 # Bullish BOS
+            trend = 1
+            last_swing_low = np.nan # Reset
+        elif not np.isnan(last_swing_low) and current_low < last_swing_low:
+            signal = -1 # Bearish BOS
+            trend = -1
+            last_swing_high = np.nan # Reset
+            
+        bos_choch.append(signal)
+
+    df['bos_choch_signal'] = bos_choch
+    df['BOS'] = df['bos_choch_signal'].apply(lambda x: 1 if x == 1 else (-1 if x == -1 else 0))
+    df['CHOCH'] = df['bos_choch_signal'].apply(lambda x: 1 if x == 2 else (-1 if x == -2 else 0))
+
+    # --- 3. Xác định Order Blocks (OB) ---
+    # Bullish OB: Nến giảm cuối cùng trước một đợt tăng giá mạnh (BOS/CHOCH tăng)
+    # Bearish OB: Nến tăng cuối cùng trước một đợt giảm giá mạnh (BOS/CHOCH giảm)
+    df['OB'] = 0
+    df['Top_OB'] = np.nan
+    df['Bottom_OB'] = np.nan
+
+    for i in range(1, len(df)):
+        # Nếu có tín hiệu tăng giá mạnh
+        if df['bos_choch_signal'].iloc[i] in [1, 2]:
+            # Tìm nến giảm gần nhất
+            for j in range(i - 1, max(0, i - 10), -1):
+                if df['close'].iloc[j] < df['open'].iloc[j]: # Nến giảm
+                    df.loc[df.index[j], 'OB'] = 1 # Bullish OB
+                    df.loc[df.index[j], 'Top_OB'] = df['high'].iloc[j]
+                    df.loc[df.index[j], 'Bottom_OB'] = df['low'].iloc[j]
+                    break
+        # Nếu có tín hiệu giảm giá mạnh
+        elif df['bos_choch_signal'].iloc[i] in [-1, -2]:
+            # Tìm nến tăng gần nhất
+            for j in range(i - 1, max(0, i - 10), -1):
+                if df['close'].iloc[j] > df['open'].iloc[j]: # Nến tăng
+                    df.loc[df.index[j], 'OB'] = -1 # Bearish OB
+                    df.loc[df.index[j], 'Top_OB'] = df['high'].iloc[j]
+                    df.loc[df.index[j], 'Bottom_OB'] = df['low'].iloc[j]
+                    break
+    
+    # --- 4. Xác định Fair Value Gaps (FVG) ---
+    df['FVG'] = 0
+    df['Top_FVG'] = np.nan
+    df['Bottom_FVG'] = np.nan
+
+    for i in range(2, len(df)):
+        # Bullish FVG: Đáy nến 1 > Đỉnh nến 3
+        if df['low'].iloc[i-2] > df['high'].iloc[i]:
+            df.loc[df.index[i-1], 'FVG'] = 1
+            df.loc[df.index[i-1], 'Top_FVG'] = df['low'].iloc[i-2]
+            df.loc[df.index[i-1], 'Bottom_FVG'] = df['high'].iloc[i]
+        # Bearish FVG: Đỉnh nến 1 < Đáy nến 3
+        elif df['high'].iloc[i-2] < df['low'].iloc[i]:
+            df.loc[df.index[i-1], 'FVG'] = -1
+            df.loc[df.index[i-1], 'Top_FVG'] = df['high'].iloc[i-2]
+            df.loc[df.index[i-1], 'Bottom_FVG'] = df['low'].iloc[i]
+
+    # --- 5. Xác định Liquidity Sweeps ---
+    # Tạm thời đơn giản hóa: một cây nến có râu dài quét qua đỉnh/đáy gần nhất
+    df['Swept'] = 0
+    recent_high = df['high'].rolling(5).max().shift(1)
+    recent_low = df['low'].rolling(5).min().shift(1)
+    
+    # Bearish sweep (quét đỉnh)
+    df.loc[(df['high'] > recent_high) & (df['close'] < recent_high), 'Swept'] = -1
+    # Bullish sweep (quét đáy)
+    df.loc[(df['low'] < recent_low) & (df['close'] > recent_low), 'Swept'] = 1
+    
+    return df
+
+
+# --- Chiến lược Freqtrade ---
+class AdvancedSMC(IStrategy):
+    """
+    Chiến lược này sử dụng các khái niệm Smart Money Concepts (SMC) nâng cao
+    với phân tích đa khung thời gian (Multi-Timeframe Analysis).
+    
+    *** PHIÊN BẢN NÀY KHÔNG SỬ DỤNG THƯ VIỆN BÊN NGOÀI ĐỂ TRÁNH XUNG ĐỘT ***
+    """
+    
+    # --- Cấu hình Chiến lược ---
+    INTERFACE_VERSION = 3
+    minimal_roi = {"0": 100}
+    stoploss = -0.10
+    timeframe = '5m'
+    informative_timeframes = ['15m', '1h', '4h', '1d']
+    process_only_new_candles = True
+    startup_candle_count: int = 200
+    use_exit_signal = True
+    exit_profit_only = False
+    ignore_roi_if_entry_signal = True
+
+    # --- Population của Indicators ---
+    def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        # --- Phân tích trên TẤT CẢ Khung Thời Gian Cao (HTF) ---
+        for htf in self.informative_timeframes:
+            informative_df = self.dp.get_pair_dataframe(pair=metadata['pair'], timeframe=htf)
+            
+            # --- Áp dụng hàm phân tích SMC thủ công ---
+            informative_df = analyze_smc_features(informative_df)
+
+            # --- Gộp dữ liệu HTF vào LTF ---
+            informative_df.rename(columns={
+                'BOS': f'htf_bos_{htf}', 'CHOCH': f'htf_choch_{htf}', 
+                'OB': f'htf_ob_{htf}', 'Top_OB': f'htf_ob_top_{htf}', 'Bottom_OB': f'htf_ob_bottom_{htf}',
+                'FVG': f'htf_fvg_{htf}', 'Top_FVG': f'htf_fvg_top_{htf}', 'Bottom_FVG': f'htf_fvg_bottom_{htf}'
+            }, inplace=True)
+            
+            required_cols = [
+                'date', f'htf_bos_{htf}', f'htf_choch_{htf}', f'htf_ob_{htf}', 
+                f'htf_ob_top_{htf}', f'htf_ob_bottom_{htf}', f'htf_fvg_{htf}', 
+                f'htf_fvg_top_{htf}', f'htf_fvg_bottom_{htf}'
+            ]
+            existing_cols = [col for col in required_cols if col in informative_df.columns]
+            informative_df_subset = informative_df[existing_cols].copy()
+
+            dataframe = merge_informative_pair(dataframe, informative_df_subset, self.timeframe, htf, ffill=True)
+
+        # --- Phân tích trên Khung Thời Gian Thấp (LTF) ---
+        dataframe = analyze_smc_features(dataframe)
+
+        return dataframe
+
+    # --- Logic Vào Lệnh ---
+    def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        higher_timeframes = [tf for tf in self.informative_timeframes if tf != '15m']
+
+        # --- Điều kiện chung cho Lệnh Mua (Long) ---
+        htf_bullish_bos = [dataframe[f'htf_bos_{htf}'] == 1 for htf in higher_timeframes]
+        htf_bullish_poi = []
+        for htf in higher_timeframes:
+            in_ob = (dataframe['low'] <= dataframe[f'htf_ob_top_{htf}']) & (dataframe['high'] >= dataframe[f'htf_ob_bottom_{htf}']) & (dataframe[f'htf_ob_{htf}'] == 1)
+            in_fvg = (dataframe['low'] <= dataframe[f'htf_fvg_top_{htf}']) & (dataframe['high'] >= dataframe[f'htf_fvg_bottom_{htf}']) & (dataframe[f'htf_fvg_{htf}'] == 1)
+            htf_bullish_poi.append(in_ob | in_fvg)
+
+        # --- Điều kiện chung cho Lệnh Bán (Short) ---
+        htf_bearish_bos = [dataframe[f'htf_bos_{htf}'] == -1 for htf in higher_timeframes]
+        htf_bearish_poi = []
+        for htf in higher_timeframes:
+            in_ob = (dataframe['low'] <= dataframe[f'htf_ob_top_{htf}']) & (dataframe['high'] >= dataframe[f'htf_ob_bottom_{htf}']) & (dataframe[f'htf_ob_{htf}'] == -1)
+            in_fvg = (dataframe['low'] <= dataframe[f'htf_fvg_top_{htf}']) & (dataframe['high'] >= dataframe[f'htf_fvg_bottom_{htf}']) & (dataframe[f'htf_fvg_{htf}'] == -1)
+            htf_bearish_poi.append(in_ob | in_fvg)
+
+        # --- Kết hợp điều kiện và tạo tín hiệu ---
+        dataframe.loc[
+            (
+                reduce(lambda a, b: a | b, htf_bullish_bos) &
+                reduce(lambda a, b: a | b, htf_bullish_poi) &
+                (dataframe['Swept'] == 1) &
+                (dataframe['CHOCH'].shift(1) == 1) &
+                (dataframe['htf_choch_15m'] != -1)
+            ),
+            ['enter_long', 'enter_tag']] = (1, 'long_smc_manual')
+        
+        dataframe.loc[
+            (
+                reduce(lambda a, b: a | b, htf_bearish_bos) &
+                reduce(lambda a, b: a | b, htf_bearish_poi) &
+                (dataframe['Swept'] == -1) &
+                (dataframe['CHOCH'].shift(1) == -1) &
+                (dataframe['htf_choch_15m'] != 1)
+            ),
+            ['enter_short', 'enter_tag']] = (1, 'short_smc_manual')
+
+        return dataframe
+
+    # --- Logic Thoát Lệnh ---
+    def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
+        dataframe.loc[(dataframe['CHOCH'] == -1), 'exit_long'] = 1
+        dataframe.loc[(dataframe['CHOCH'] == 1), 'exit_short'] = 1
+        return dataframe
+
+    # --- Tương tác qua Telegram ---
+    def rpc_smc_status(self, pair: str, **kwargs) -> dict:
+        dataframe = self.dp.get_analyzed_dataframe(pair=pair, timeframe=self.timeframe)
+        if dataframe.empty:
+            return {"error": f"Không có dữ liệu cho cặp {pair}."}
+        
+        last_candle = dataframe.iloc[-1].to_dict()
+        message = f"🔍 **Phân tích SMC cho {pair} (Thủ công)**\n"
+        message += f"------------------------------------\n"
+        sorted_timeframes = sorted(self.informative_timeframes, key=lambda x: pd.to_timedelta(x.replace('d', 'days').replace('w', 'weeks')), reverse=True)
+        
+        for htf in sorted_timeframes:
+            htf_bos_val = last_candle.get(f'htf_bos_{htf}')
+            htf_choch_val = last_candle.get(f'htf_choch_{htf}')
+            htf_bos = "Tăng" if htf_bos_val == 1 else "Giảm" if htf_bos_val == -1 else "Không rõ"
+            htf_choch = "Tăng" if htf_choch_val == 1 else "Giảm" if htf_choch_val == -1 else "Không có"
+            message += (f"**Khung ({htf}):**\n  - Xu hướng (BOS): **{htf_bos}**\n  - Đảo chiều (CHoCH): **{htf_choch}**\n")
+        
+        ltf_choch_val = last_candle.get('CHOCH')
+        liquidity_swept_val = last_candle.get('Swept')
+        ltf_choch = "Tăng" if ltf_choch_val == 1 else "Giảm" if ltf_choch_val == -1 else "Không có"
+        liquidity_swept = "Quét đáy" if liquidity_swept_val == 1 else "Quét đỉnh" if liquidity_swept_val == -1 else "Không có"
+        
+        message += (
+            f"------------------------------------\n"
+            f"**Khung ({self.timeframe}):**\n"
+            f"  - Đảo chiều (CHoCH): **{ltf_choch}**\n"
+            f"  - Quét thanh khoản: **{liquidity_swept}**\n"
+            f"------------------------------------\n"
+            f"Cập nhật lúc: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        return {"msg": message}
