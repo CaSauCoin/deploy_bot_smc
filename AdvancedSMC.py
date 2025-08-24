@@ -143,7 +143,7 @@ class AdvancedSMC:
             return None
     
     def analyze_smc_structure(self, df):
-        """Phân tích cấu trúc thị trường SMC - METHOD BỊ THIẾU"""
+        """Phân tích cấu trúc thị trường SMC"""
         if df is None or len(df) < 50:
             return {
                 'order_blocks': [],
@@ -415,7 +415,7 @@ class AdvancedSMC:
             logger.error(f"Error in populate_exit_trend: {e}")
             return dataframe
     
-    def get_trading_signals(self, symbol, timeframe='4h'):
+    def get_trading_signals(self, symbol, timeframe='1d'):
         """METHOD CHÍNH - Lấy tín hiệu trading dựa trên SMC"""
         try:
             # Lấy dữ liệu
@@ -627,7 +627,7 @@ class AdvancedSMC:
         
         return bos_signals[-10:]  # Trả về 10 BOS gần nhất
     
-    def get_telegram_summary(self, symbol, timeframe='4h'):
+    def get_telegram_summary(self, symbol, timeframe='1d'):
         """Lấy tóm tắt ngắn gọn cho Telegram"""
         try:
             result = self.get_trading_signals(symbol, timeframe)

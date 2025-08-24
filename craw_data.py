@@ -1,9 +1,9 @@
-# backend/craw_data.py
-
 import ccxt
 import pandas as pd
 import numpy as np
 import time
+
+# Lấy nến đóng và mở rộng hàm fetch_ohlcv để hỗ trợ nhiều timeframe hơn
 
 def fetch_ohlcv(exchange_name, symbol, timeframe, limit):
     """Fetch OHLCV data từ exchange được chỉ định"""
@@ -69,6 +69,8 @@ def fetch_ohlcv(exchange_name, symbol, timeframe, limit):
         print("Tạo dữ liệu giả để test...")
         return create_sample_data(limit, timeframe)
 
+
+# bỏ phần này
 def create_sample_data(limit=200, timeframe='4h'):
     """Tạo dữ liệu giả để test với timeframe cụ thể"""
     import random

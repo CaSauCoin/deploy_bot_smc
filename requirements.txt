@@ -31,6 +31,7 @@ pycares==4.10.0
 pycparser==2.22
 pyproject_hooks==1.2.0
 python-dateutil==2.9.0.post0
+python-dotenv==1.0.0
 python-telegram-bot==20.7
 pytz==2023.3
 requests==2.31.0
